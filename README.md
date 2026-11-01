@@ -4,6 +4,26 @@
 
 **Phoneme:** target (1, 2) corresponds to (nasal, oral)
 
+---
+
+A função Sigmoide e o Gradient Descent formam uma combinação problemática no aprendizado de máquina devido ao fenômeno do desvanecimento do gradiente (vanishing gradient).
+
+**1. Saturação nos extremos**
+
+A função Sigmoide esmaga qualquer valor de entrada para um intervalo entre 0 e 1.
+• Quando as entradas são muito grandes (positivas) ou muito pequenas (negativas), a curva da Sigmoide fica completamente plana (saturada).
+• Em termos matemáticos, a derivada (o gradiente) da Sigmoide nesses extremos se aproxima de zero.
+
+**2. Gradientes muito pequenos**
+
+A derivada máxima da função Sigmoide é de apenas 0,25 (quando a entrada é zero). Conforme você se afasta do centro, esse valor cai drasticamente.
+
+**3. O efeito dominó no Gradient Descent**
+
+O Gradient Descent atualiza os pesos da rede neural multiplicando os gradientes ao longo das camadas (Regra da Cadeia).
+• Se você multiplica vários valores menores que 0,25 (das funções Sigmoide de cada camada), o gradiente final fica infinitamente pequeno.
+• Como o gradiente dita o "tamanho do passo" na atualização dos pesos, um gradiente próximo de zero significa que a rede para de aprender (os pesos param de mudar).
+
 ## TO-DOs
 
 - [ ] Check this info: target (0, 1, 2) corresponds to (Barolo, Grignolino, Barbera)
