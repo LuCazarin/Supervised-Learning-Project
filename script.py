@@ -1,9 +1,14 @@
+import sys
 import time
+import warnings
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
-import warnings
 from sklearn.exceptions import ConvergenceWarning
 
 from sklearn.datasets import load_wine, fetch_openml
@@ -34,11 +39,19 @@ def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
 
     for idx, params in enumerate(combinacoes):
         modelo = modelo_base.set_params(**params)
+        nome_config = f"Config_{idx+1}"
 
         # Medição do tempo de Treinamento
-        t_inicio_treino = time.time()
-        modelo.fit(X_train_scaled, y_train)
-        t_treino = time.time() - t_inicio_treino
+        with warnings.catch_warnings(record=True) as avisos:
+            warnings.simplefilter("always", ConvergenceWarning)
+            t_inicio_treino = time.time()
+            modelo.fit(X_train_scaled, y_train)
+            t_treino = time.time() - t_inicio_treino
+            convergiu = not any(issubclass(aviso.category, ConvergenceWarning) for aviso in avisos)
+
+        n_iter = getattr(modelo, "n_iter_", None)
+        if not convergiu:
+            print(f"  Não convergiu: {nome_base} {nome_config} {params} (n_iter={n_iter})")
 
         # Medição do tempo de Classificação (Inferência)
         t_inicio_teste = time.time()
@@ -53,13 +66,14 @@ def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
         cm = confusion_matrix(y_test, y_pred)
 
         # Armazenar Resultados
-        nome_config = f"Config_{idx+1}"
         matrizes[nome_config] = {'cm': cm, 'params': params}
 
         resultados.append({
             'Base': nome_base,
             'Configuração': nome_config,
             'Parâmetros': str(params),
+            'Convergiu': convergiu,
+            'n_iter': n_iter,
             'Tempo Treino (s)': t_treino,
             'Tempo Teste (s)': t_teste,
             'Acurácia': acc,
@@ -70,25 +84,62 @@ def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
 
     return pd.DataFrame(resultados), matrizes
 
-def plotar_matriz_confusao(cm, params, titulo):
-    """Plota a matriz de confusão usando seaborn."""
+def plotar_matriz_confusao(cm, params, titulo, caminho):
+    """Salva a matriz de confusão em um arquivo PNG."""
     plt.figure(figsize=(5, 4))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
     plt.title(f"{titulo}\n{params}", fontsize=10)
     plt.ylabel('Rótulo Verdadeiro')
     plt.xlabel('Rótulo Previsto')
     plt.tight_layout()
-    plt.show()
+    plt.savefig(caminho, dpi=150)
+    plt.close()
 
-def plotar_dispersao_features(X, y, titulo):
+def _nome_feature_em_linhas(nome, largura=16):
+    """Quebra nomes longos de features para caber nos eixos do pairplot."""
+    texto = nome.replace("_", " ").replace("/", "/ ")
+    palavras = texto.split()
+    linhas = []
+    atual = ""
+    for palavra in palavras:
+        candidato = palavra if not atual else f"{atual} {palavra}"
+        if len(candidato) <= largura:
+            atual = candidato
+        else:
+            if atual:
+                linhas.append(atual)
+            atual = palavra
+    if atual:
+        linhas.append(atual)
+    return "\n".join(linhas)
+
+
+def plotar_dispersao_features(X, y, titulo, caminho):
     """Gera gráficos de dispersão combinando todas as features 2 a 2."""
     df_plot = X.copy()
+    df_plot = df_plot.rename(columns={col: _nome_feature_em_linhas(col) for col in df_plot.columns})
     # Converte o y para string para que o Seaborn trate sempre como categoria discreta nas cores
     df_plot['Target'] = y.astype(str)
-    
+
     # pairplot cruza todas as colunas numéricas; corner=True oculta os gráficos espelhados
-    g = sns.pairplot(df_plot, hue='Target', corner=True, diag_kind='hist', height=1.5)
-    g.fig.suptitle(titulo, y=1.02, fontsize=14)
+    g = sns.pairplot(df_plot, hue='Target', corner=True, diag_kind='hist', height=1.7)
+    g.fig.suptitle(titulo, y=1.01, fontsize=14)
+    for ax in g.axes.flatten():
+        if ax is None:
+            continue
+        ax.tick_params(labelsize=7)
+        ax.xaxis.label.set_size(8)
+        ax.yaxis.label.set_size(8)
+    g.fig.subplots_adjust(left=0.08, right=0.95, top=0.95, bottom=0.08, hspace=0.12, wspace=0.12)
+    g.savefig(caminho, dpi=150, bbox_inches='tight')
+    plt.close(g.fig)
+
+OUTPUT_DIR = Path("output")
+OUTPUT_DIR.mkdir(exist_ok=True)
+log_path = OUTPUT_DIR / "output.txt"
+log_file = open(log_path, "w", encoding="utf-8", buffering=1)
+sys.stdout = log_file
+print(f"Escrevendo resultados em {log_path.resolve()}", file=sys.__stderr__)
 
 # ==========================================
 # 1. CARREGAMENTO E PREPARAÇÃO DOS DADOS
@@ -148,14 +199,27 @@ print("\n=== TOP CONFIGURAÇÕES POR F1-SCORE ===")
 display_df = relatorio_final.sort_values(by='F1-Score', ascending=False)
 print(display_df.to_string())
 
+nao_convergiu = relatorio_final[relatorio_final['Convergiu'] == False]
+print("\n=== COMBINAÇÕES QUE NÃO CONVERGIRAM ===")
+if nao_convergiu.empty:
+    print("Todas as configurações convergiram.")
+else:
+    print(nao_convergiu[['Base', 'Configuração', 'Parâmetros', 'n_iter', 'F1-Score']].to_string(index=False))
+
 # ==========================================
 # 4. GERAÇÃO DOS GRÁFICOS
 # ==========================================
-print("\nGerando os gráficos (feche as janelas para encerrar o programa)...")
+print("\nGerando os gráficos em", OUTPUT_DIR.resolve())
 
 # Dispersão 2 a 2 (Pairplot)
-plotar_dispersao_features(X_wine, y_wine, "Dispersão das Features - Wine")
-plotar_dispersao_features(X_phoneme, y_phoneme, "Dispersão das Features - Phoneme")
+plotar_dispersao_features(
+    X_wine, y_wine, "Dispersão das Features - Wine",
+    OUTPUT_DIR / "dispersao_features_wine.png"
+)
+plotar_dispersao_features(
+    X_phoneme, y_phoneme, "Dispersão das Features - Phoneme",
+    OUTPUT_DIR / "dispersao_features_phoneme.png"
+)
 
 # Matriz de Confusão: Melhor do Wine (Considerando todos os modelos)
 res_wine_todos = pd.concat([res_wine_mlp, res_wine_knn], ignore_index=True)
@@ -164,9 +228,10 @@ id_melhor_w = melhor_config_wine['Configuração']
 base_melhor_w = melhor_config_wine['Base']
 cm_dict_w = cm_wine_mlp if "MLP" in base_melhor_w else cm_wine_knn # Busca no dict certo
 plotar_matriz_confusao(
-    cm=cm_dict_w[id_melhor_w]['cm'], 
-    params=cm_dict_w[id_melhor_w]['params'], 
-    titulo=f"Melhor Modelo ({base_melhor_w})"
+    cm=cm_dict_w[id_melhor_w]['cm'],
+    params=cm_dict_w[id_melhor_w]['params'],
+    titulo=f"Melhor Modelo ({base_melhor_w})",
+    caminho=OUTPUT_DIR / "matriz_confusao_wine.png"
 )
 
 # Matriz de Confusão: Melhor do Phoneme (Considerando todos os modelos)
@@ -178,10 +243,10 @@ base_melhor_p = melhor_config_phoneme['Base']
 # Correção lógica para buscar a matriz no dicionário correto
 cm_dict_p = cm_phoneme_mlp if "MLP" in base_melhor_p else cm_phoneme_knn
 plotar_matriz_confusao(
-    cm=cm_dict_p[id_melhor_p]['cm'], 
-    params=cm_dict_p[id_melhor_p]['params'], 
-    titulo=f"Melhor Modelo ({base_melhor_p})"
+    cm=cm_dict_p[id_melhor_p]['cm'],
+    params=cm_dict_p[id_melhor_p]['params'],
+    titulo=f"Melhor Modelo ({base_melhor_p})",
+    caminho=OUTPUT_DIR / "matriz_confusao_phoneme.png"
 )
 
-# Exibe tudo
-plt.show()
+log_file.close()
