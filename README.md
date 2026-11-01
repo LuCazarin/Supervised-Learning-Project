@@ -27,6 +27,7 @@ O Gradient Descent atualiza os pesos da rede neural multiplicando os gradientes 
 ## TO-DOs
 
 - [ ] Check this info: target (0, 1, 2) corresponds to (Barolo, Grignolino, Barbera)
+- [ ] Check this info: target (1, 2) corresponds to (nasal, oral)
 
 ## Output example
 
