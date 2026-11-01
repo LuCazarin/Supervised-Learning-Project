@@ -13,13 +13,13 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-# Suprime os avisos de não-convergência para manter a saída limpa
-warnings.filterwarnings("ignore", category=ConvergenceWarning)
+# Suprime os avisos de não-convergência
+#warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
     """Divide os dados, aplica padronização e testa todas as combinações de hiperparâmetros."""
 
-    # Divisão 70% Treino / 30% Teste
+    # Divisão 70% Treino / 30% Teste. O random_state é a seed que aleatoriza o dataset
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
 
     # Padronização (Obrigatório para MLP e k-NN)
@@ -80,6 +80,16 @@ def plotar_matriz_confusao(cm, params, titulo):
     plt.tight_layout()
     plt.show()
 
+def plotar_dispersao_features(X, y, titulo):
+    """Gera gráficos de dispersão combinando todas as features 2 a 2."""
+    df_plot = X.copy()
+    # Converte o y para string para que o Seaborn trate sempre como categoria discreta nas cores
+    df_plot['Target'] = y.astype(str)
+    
+    # pairplot cruza todas as colunas numéricas; corner=True oculta os gráficos espelhados
+    g = sns.pairplot(df_plot, hue='Target', corner=True, diag_kind='hist', height=1.5)
+    g.fig.suptitle(titulo, y=1.02, fontsize=14)
+
 # ==========================================
 # 1. CARREGAMENTO E PREPARAÇÃO DOS DADOS
 # ==========================================
@@ -139,13 +149,39 @@ display_df = relatorio_final.sort_values(by='F1-Score', ascending=False)
 print(display_df.to_string())
 
 # ==========================================
-# 4. PLOTAGEM DAS MATRIZES DE CONFUSÃO (Exemplo)
+# 4. GERAÇÃO DOS GRÁFICOS
 # ==========================================
-# Plotar a matriz da melhor configuração do Wine com MLP
-melhor_config_wine = res_wine_mlp.loc[res_wine_mlp['F1-Score'].idxmax()]
-id_melhor = melhor_config_wine['Configuração']
+print("\nGerando os gráficos (feche as janelas para encerrar o programa)...")
+
+# Dispersão 2 a 2 (Pairplot)
+plotar_dispersao_features(X_wine, y_wine, "Dispersão das Features - Wine")
+plotar_dispersao_features(X_phoneme, y_phoneme, "Dispersão das Features - Phoneme")
+
+# Matriz de Confusão: Melhor do Wine (Considerando todos os modelos)
+res_wine_todos = pd.concat([res_wine_mlp, res_wine_knn], ignore_index=True)
+melhor_config_wine = res_wine_todos.loc[res_wine_todos['F1-Score'].idxmax()]
+id_melhor_w = melhor_config_wine['Configuração']
+base_melhor_w = melhor_config_wine['Base']
+cm_dict_w = cm_wine_mlp if "MLP" in base_melhor_w else cm_wine_knn # Busca no dict certo
 plotar_matriz_confusao(
-    cm=cm_wine_mlp[id_melhor]['cm'],
-    params=cm_wine_mlp[id_melhor]['params'],
-    titulo="Melhor MLP - Wine"
+    cm=cm_dict_w[id_melhor_w]['cm'], 
+    params=cm_dict_w[id_melhor_w]['params'], 
+    titulo=f"Melhor Modelo ({base_melhor_w})"
 )
+
+# Matriz de Confusão: Melhor do Phoneme (Considerando todos os modelos)
+res_phoneme_todos = pd.concat([res_phoneme_mlp, res_phoneme_knn], ignore_index=True)
+melhor_config_phoneme = res_phoneme_todos.loc[res_phoneme_todos['F1-Score'].idxmax()]
+id_melhor_p = melhor_config_phoneme['Configuração']
+base_melhor_p = melhor_config_phoneme['Base']
+
+# Correção lógica para buscar a matriz no dicionário correto
+cm_dict_p = cm_phoneme_mlp if "MLP" in base_melhor_p else cm_phoneme_knn
+plotar_matriz_confusao(
+    cm=cm_dict_p[id_melhor_p]['cm'], 
+    params=cm_dict_p[id_melhor_p]['params'], 
+    titulo=f"Melhor Modelo ({base_melhor_p})"
+)
+
+# Exibe tudo
+plt.show()
