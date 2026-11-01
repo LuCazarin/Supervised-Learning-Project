@@ -18,44 +18,44 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
     """Divide os dados, aplica padronização e testa todas as combinações de hiperparâmetros."""
-    
+
     # Divisão 70% Treino / 30% Teste
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
-    
+
     # Padronização (Obrigatório para MLP e k-NN)
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    
+
     resultados = []
     matrizes = {}
-    
+
     combinacoes = list(ParameterGrid(grid_parametros))
-    
+
     for idx, params in enumerate(combinacoes):
         modelo = modelo_base.set_params(**params)
-        
+
         # Medição do tempo de Treinamento
         t_inicio_treino = time.time()
         modelo.fit(X_train_scaled, y_train)
         t_treino = time.time() - t_inicio_treino
-        
+
         # Medição do tempo de Classificação (Inferência)
         t_inicio_teste = time.time()
         y_pred = modelo.predict(X_test_scaled)
         t_teste = time.time() - t_inicio_teste
-        
+
         # Cálculo de Métricas (average='macro' atende bases multiclasse e binárias)
         acc = accuracy_score(y_test, y_pred)
-        prec = precision_score(y_test, y_pred, average='macro')
+        prec = precision_score(y_test, y_pred, average='macro', zero_division=0)
         rec = recall_score(y_test, y_pred, average='macro')
         f1 = f1_score(y_test, y_pred, average='macro')
         cm = confusion_matrix(y_test, y_pred)
-        
+
         # Armazenar Resultados
         nome_config = f"Config_{idx+1}"
         matrizes[nome_config] = {'cm': cm, 'params': params}
-        
+
         resultados.append({
             'Base': nome_base,
             'Configuração': nome_config,
@@ -67,7 +67,7 @@ def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
             'Recall': rec,
             'F1-Score': f1
         })
-        
+
     return pd.DataFrame(resultados), matrizes
 
 def plotar_matriz_confusao(cm, params, titulo):
@@ -85,15 +85,21 @@ def plotar_matriz_confusao(cm, params, titulo):
 # ==========================================
 print("Carregando bases de dados...")
 
+q_exemplos = 5
+
 # Base Wine (Scikit-Learn)
 wine = load_wine()
 X_wine = pd.DataFrame(wine.data, columns=wine.feature_names)
 y_wine = wine.target
+print("\n--- Exemplos Aleatórios do dataset Wine ---")
+print(X_wine.assign(target=y_wine).sample(q_exemplos))
 
 # Base Phoneme (OpenML)
 phoneme = fetch_openml(name='phoneme', version=1, as_frame=True, parser='auto')
 X_phoneme = phoneme.data
 y_phoneme = phoneme.target
+print("\n--- Exemplos Aleatórios do dataset Phoneme ---")
+print(X_phoneme.assign(target=y_phoneme).sample(q_exemplos))
 
 # ==========================================
 # 2. DEFINIÇÃO DOS HIPERPARÂMETROS
@@ -127,9 +133,9 @@ res_phoneme_knn, cm_phoneme_knn = executar_experimento("Phoneme (k-NN)", X_phone
 # Consolida os relatórios em um único DataFrame
 relatorio_final = pd.concat([res_wine_mlp, res_wine_knn, res_phoneme_mlp, res_phoneme_knn], ignore_index=True)
 
-# Exibe as 5 melhores configurações gerais ordenadas por F1-Score
-print("\n=== TOP 5 CONFIGURAÇÕES POR F1-SCORE ===")
-display_df = relatorio_final.sort_values(by='F1-Score', ascending=False).head(5)
+# Exibe as configurações ordenadas por F1-Score
+print("\n=== TOP CONFIGURAÇÕES POR F1-SCORE ===")
+display_df = relatorio_final.sort_values(by='F1-Score', ascending=False)
 print(display_df.to_string())
 
 # ==========================================
@@ -139,7 +145,7 @@ print(display_df.to_string())
 melhor_config_wine = res_wine_mlp.loc[res_wine_mlp['F1-Score'].idxmax()]
 id_melhor = melhor_config_wine['Configuração']
 plotar_matriz_confusao(
-    cm=cm_wine_mlp[id_melhor]['cm'], 
-    params=cm_wine_mlp[id_melhor]['params'], 
+    cm=cm_wine_mlp[id_melhor]['cm'],
+    params=cm_wine_mlp[id_melhor]['params'],
     titulo="Melhor MLP - Wine"
 )
