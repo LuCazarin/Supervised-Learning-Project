@@ -1,47 +1,46 @@
-import sys
-import time
-import warnings
-from pathlib import Path
+import sys                # Para redirecionar a saída para output/output.txt
+import time               # Para medir o tempo de treinamento e teste
+import warnings           # Para capturar warnings de convergência
+from pathlib import Path  # Para manipular caminhos de arquivos
 
 import pandas as pd
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use("Agg")                             # Para plotar gráficos em arquivos, sem mostrar na tela
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.exceptions import ConvergenceWarning
+from sklearn.exceptions import ConvergenceWarning # Para capturar warnings de convergência
 
-from sklearn.datasets import load_wine, fetch_openml
-from sklearn.model_selection import train_test_split, ParameterGrid
-from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.datasets import load_wine, fetch_openml                 # Para carregar os datasets
+from sklearn.model_selection import train_test_split, ParameterGrid  # Para dividir os dados em treino e teste, e para gerar as combinações de hiperparâmetros
+from sklearn.preprocessing import StandardScaler                     # Para padronizar os dados
+from sklearn.neural_network import MLPClassifier                     # Para criar o modelo de Rede Neural
+from sklearn.neighbors import KNeighborsClassifier                   # Para criar o modelo de k-NN
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-# Suprime os avisos de não-convergência
-#warnings.filterwarnings("ignore", category=ConvergenceWarning)
+seed = 42 # Para garantir a repetibilidade dos resultados
 
 def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
     """Divide os dados, aplica padronização e testa todas as combinações de hiperparâmetros."""
 
     # Divisão 70% Treino / 30% Teste. O random_state é a seed que aleatoriza o dataset
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
 
     # Padronização (Obrigatório para MLP e k-NN)
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    X_train_scaled = scaler.fit_transform(X_train) # fit: calcula média e desvio padrão nos dados de treino; transform: padroniza os dados para ter média=0 e desvio padrão=1
+    X_test_scaled = scaler.transform(X_test) # transforma os dados de teste usando os parâmetros calculados no treino
 
-    resultados = []
-    matrizes = {}
+    resultados = [] # Lista para armazenar os resultados de cada combinação de hiperparâmetros
+    matrizes = {}   # Dicionário para armazenar as matrizes de confusão de cada combinação de hiperparâmetros
 
-    combinacoes = list(ParameterGrid(grid_parametros))
+    combinacoes = list(ParameterGrid(grid_parametros)) # Gera todas as combinações de hiperparâmetros
 
     for idx, params in enumerate(combinacoes):
         modelo = modelo_base.set_params(**params)
         nome_config = f"Config_{idx+1}"
 
-        # Medição do tempo de Treinamento
+        # Mede o tempo de Treinamento e diferencia se o modelo convergiu ou não
         with warnings.catch_warnings(record=True) as avisos:
             warnings.simplefilter("always", ConvergenceWarning)
             t_inicio_treino = time.time()
@@ -53,12 +52,12 @@ def executar_experimento(nome_base, X, y, modelo_base, grid_parametros):
         if not convergiu:
             print(f"  Não convergiu: {nome_base} {nome_config} {params} (n_iter={n_iter})")
 
-        # Medição do tempo de Classificação (Inferência)
+        # Mede o tempo de Classificação (Inferência)
         t_inicio_teste = time.time()
         y_pred = modelo.predict(X_test_scaled)
         t_teste = time.time() - t_inicio_teste
 
-        # Cálculo de Métricas (average='macro' atende bases multiclasse e binárias)
+        # Calcula as métricas (average='macro' atende bases multiclasse e binárias)
         acc = accuracy_score(y_test, y_pred)
         prec = precision_score(y_test, y_pred, average='macro', zero_division=0)
         rec = recall_score(y_test, y_pred, average='macro')
@@ -97,7 +96,7 @@ def plotar_matriz_confusao(cm, params, titulo, caminho):
 
 def _nome_feature_em_linhas(nome, largura=16):
     """Quebra nomes longos de features para caber nos eixos do pairplot."""
-    texto = nome.replace("_", " ").replace("/", "/ ")
+    texto = nome.replace("_", " ")
     palavras = texto.split()
     linhas = []
     atual = ""
@@ -152,32 +151,33 @@ q_exemplos = 5
 wine = load_wine()
 X_wine = pd.DataFrame(wine.data, columns=wine.feature_names)
 y_wine = wine.target
-print("\n--- Exemplos Aleatórios do dataset Wine ---")
-print(X_wine.assign(target=y_wine).sample(q_exemplos))
+print("\n--- Exemplos aleatórios do dataset Wine ---")
+print(X_wine.assign(target=y_wine).sample(q_exemplos, random_state=seed))
 
 # Base Phoneme (OpenML)
 phoneme = fetch_openml(name='phoneme', version=1, as_frame=True, parser='auto')
 X_phoneme = phoneme.data
 y_phoneme = phoneme.target
-print("\n--- Exemplos Aleatórios do dataset Phoneme ---")
-print(X_phoneme.assign(target=y_phoneme).sample(q_exemplos))
+print("\n--- Exemplos aleatórios do dataset Phoneme ---")
+print(X_phoneme.assign(target=y_phoneme).sample(q_exemplos, random_state=seed))
 
 # ==========================================
 # 2. DEFINIÇÃO DOS HIPERPARÂMETROS
 # ==========================================
-# Rede Neural: max_iter elevado para permitir convergência, alpha para evitar overfitting básico
-mlp_base = MLPClassifier(max_iter=1000, random_state=42)
+# Rede Neural
+mlp_base = MLPClassifier(max_iter=1000, random_state=seed)
 mlp_grid = {
-    'hidden_layer_sizes': [(100,), (50, 50)], # 1 camada de 100 vs 2 camadas de 50
-    'activation': ['relu', 'tanh', 'logistic'],
-    'solver': ['adam', 'lbfgs', 'sgd']
+    'hidden_layer_sizes': [(100,), (50, 50)],   # 1 camada de 100 neurônios vs 2 camadas de 50 neurônios
+    'activation': ['relu', 'tanh', 'logistic'], # Função de ativação para os neurônios
+    'solver': ['adam', 'lbfgs', 'sgd']          # Algoritmo de otimização para atualizar os pesos
 }
 
+# k-NN
 knn_base = KNeighborsClassifier()
 knn_grid = {
-    'n_neighbors': [3, 5, 7, 11],
-    'weights': ['uniform', 'distance'],
-    'metric': ['euclidean', 'manhattan']
+    'n_neighbors': [3, 5, 7, 11],        # Número de vizinhos mais próximos a considerar
+    'weights': ['uniform', 'distance'],  # Peso dos vizinhos (uniforme ou recompensar os mais próximos)
+    'metric': ['euclidean', 'manhattan'] # Como medir a distância entre os vizinhos
 }
 
 # ==========================================
@@ -239,9 +239,7 @@ res_phoneme_todos = pd.concat([res_phoneme_mlp, res_phoneme_knn], ignore_index=T
 melhor_config_phoneme = res_phoneme_todos.loc[res_phoneme_todos['F1-Score'].idxmax()]
 id_melhor_p = melhor_config_phoneme['Configuração']
 base_melhor_p = melhor_config_phoneme['Base']
-
-# Correção lógica para buscar a matriz no dicionário correto
-cm_dict_p = cm_phoneme_mlp if "MLP" in base_melhor_p else cm_phoneme_knn
+cm_dict_p = cm_phoneme_mlp if "MLP" in base_melhor_p else cm_phoneme_knn # Busca no dict certo
 plotar_matriz_confusao(
     cm=cm_dict_p[id_melhor_p]['cm'],
     params=cm_dict_p[id_melhor_p]['params'],
